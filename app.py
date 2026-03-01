@@ -205,13 +205,27 @@ def configure(cfg: dict, session_token: str = ""):
 
     max_hops = cfg.get("routing", {}).get("max_agent_hops", 4)
 
-    agent_names = list(cfg.get("agents", {}).keys())
+    agents_cfg = cfg.get("agents", {})
+    agent_names = list(agents_cfg.keys())
+    alias_map: dict[str, str] = {}
+    for name, agent_cfg in agents_cfg.items():
+        canonical = (name or "").strip().lower()
+        if not canonical:
+            continue
+        alias_map[canonical] = canonical
+        command = str(agent_cfg.get("command", "")).strip().lower()
+        if command:
+            alias_map[command] = canonical
+        label = str(agent_cfg.get("label", "")).strip().lower()
+        if label:
+            alias_map[label] = canonical
     router = Router(
         agent_names=agent_names,
+        alias_map=alias_map,
         default_mention=cfg.get("routing", {}).get("default", "none"),
         max_hops=max_hops,
     )
-    agents = AgentTrigger(cfg.get("agents", {}), data_dir=data_dir)
+    agents = AgentTrigger(agents_cfg, data_dir=data_dir)
 
     # Bridge: when ANY message is added to store (including via MCP),
     # broadcast to all WebSocket clients
@@ -855,6 +869,7 @@ async def delete_hat(agent_name: str):
 async def heartbeat(agent_name: str, request: Request):
     """Wrapper calls this to keep presence alive and report activity."""
     import mcp_bridge
+    agent_name = mcp_bridge.canonicalize_name(agent_name)
     with mcp_bridge._presence_lock:
         mcp_bridge._presence[agent_name] = __import__("time").time()
     # Optional activity report from wrapper's terminal monitor

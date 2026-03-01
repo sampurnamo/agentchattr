@@ -4,9 +4,14 @@ import re
 
 
 class Router:
-    def __init__(self, agent_names: list[str], default_mention: str = "both",
+    def __init__(self, agent_names: list[str], alias_map: dict[str, str] | None = None, default_mention: str = "both",
                  max_hops: int = 4):
         self.agent_names = set(n.lower() for n in agent_names)
+        # alias_map normalizes mention/sender variants to a configured agent key
+        # e.g. {"claude": "ishika", "codex": "meera", "gemini": "rashmika"}
+        self.alias_map = {k.lower(): v.lower() for k, v in (alias_map or {}).items()}
+        for name in self.agent_names:
+            self.alias_map.setdefault(name, name)
         self.default_mention = default_mention
         self.max_hops = max_hops
         # Per-channel state: { channel: { hop_count, paused, guard_emitted } }
@@ -23,10 +28,14 @@ class Router:
         return self._channels[channel]
 
     def _build_pattern(self):
-        names = "|".join(re.escape(n) for n in sorted(self.agent_names))
+        names = "|".join(re.escape(n) for n in sorted(self.alias_map.keys()))
         self._mention_re = re.compile(
             rf"@({names}|both|all)\b", re.IGNORECASE
         )
+
+    def normalize_name(self, name: str) -> str:
+        key = (name or "").strip().lower()
+        return self.alias_map.get(key, key)
 
     def parse_mentions(self, text: str) -> list[str]:
         mentions = set()
@@ -35,15 +44,18 @@ class Router:
             if name in ("both", "all"):
                 mentions.update(self.agent_names)
             else:
-                mentions.add(name)
+                canonical = self.normalize_name(name)
+                if canonical in self.agent_names:
+                    mentions.add(canonical)
         return list(mentions)
 
     def _is_agent(self, sender: str) -> bool:
-        return sender.lower() in self.agent_names
+        return self.normalize_name(sender) in self.agent_names
 
     def get_targets(self, sender: str, text: str, channel: str = "general") -> list[str]:
         """Determine which agents should receive this message."""
         ch = self._get_ch(channel)
+        sender_key = self.normalize_name(sender)
 
         if ch["paused"]:
             return []
@@ -71,7 +83,7 @@ class Router:
                 ch["paused"] = True
                 return []
             # Don't route back to self
-            return [m for m in mentions if m != sender]
+            return [m for m in mentions if m != sender_key]
 
     def continue_routing(self, channel: str = "general"):
         """Resume after loop guard pause."""

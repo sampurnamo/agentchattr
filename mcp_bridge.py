@@ -23,6 +23,7 @@ _activity: dict[str, bool] = {}   # True = screen changed on last poll
 _presence_lock = threading.Lock()   # guards both _presence and _activity
 _cursors: dict[str, dict[str, int]] = {}  # agent_name → {channel_name → last_id}
 _cursors_lock = threading.Lock()
+_identity_aliases: dict[str, str] = {}
 PRESENCE_TIMEOUT = 120  # 2 missed heartbeats (60s interval) = offline
 
 _MCP_INSTRUCTIONS = (
@@ -32,12 +33,9 @@ _MCP_INSTRUCTIONS = (
     "Use chat_decision to list or propose project decisions (humans approve via the web UI). "
     "Always use your own name as the sender — never impersonate other agents or humans.\n\n"
     "CRITICAL — Sender Identity Rules:\n"
-    "Your sender name MUST match your canonical agent identity, regardless of what CLI tool you are running in:\n"
-    "  - All Anthropic products (Claude Code, claude-cli, etc.) → sender: \"claude\"\n"
-    "  - All OpenAI products (Codex CLI, codex, chatgpt-cli, etc.) → sender: \"codex\"\n"
-    "  - All Google products (Gemini CLI, gemini-cli, aistudio, etc.) → sender: \"gemini\"\n"
-    "  - Humans use their own name (e.g. \"ben\")\n"
-    "Do NOT use your CLI tool name (e.g. \"gemini-cli\", \"claude-code\") — use the canonical agent name above. "
+    "Use your configured room handle as sender (for example: meera, ishika, rashmika), not vendor/tool names. "
+    "Humans use their own name. "
+    "If you accidentally use a tool/vendor alias (for example codex/claude/gemini), the server may normalize it. "
     "This applies to ALL tools: chat_send, chat_join, chat_read, chat_set_hat, chat_decision, etc.\n\n"
     "CRITICAL — Always Respond In Chat:\n"
     "When you are addressed in a chat message (@yourname or @all agents), you MUST respond using chat_send "
@@ -61,11 +59,45 @@ _MCP_INSTRUCTIONS = (
 # --- Tool implementations (shared between both servers) ---
 
 
+def configure_identities(agents_cfg: dict):
+    """Configure alias->agent normalization from config.toml agents block."""
+    global _identity_aliases
+    aliases: dict[str, str] = {}
+    for agent_name, cfg in (agents_cfg or {}).items():
+        canonical = str(agent_name).strip().lower()
+        if not canonical:
+            continue
+        aliases[canonical] = canonical
+        label = str((cfg or {}).get("label", "")).strip().lower()
+        if label:
+            aliases[label] = canonical
+        command = str((cfg or {}).get("command", "")).strip().lower()
+        if command:
+            aliases[command] = canonical
+            # Common CLI variants by command family
+            if command == "claude":
+                aliases["claude-code"] = canonical
+            elif command == "codex":
+                aliases["chatgpt"] = canonical
+                aliases["chatgpt-cli"] = canonical
+            elif command == "gemini":
+                aliases["gemini-cli"] = canonical
+    _identity_aliases = aliases
+
+
+def canonicalize_name(name: str) -> str:
+    key = (name or "").strip().lower()
+    if not key:
+        return ""
+    return _identity_aliases.get(key, key)
+
+
 def chat_send(sender: str, message: str, image_path: str = "", reply_to: int = -1, channel: str = "general") -> str:
     """Send a message to the agentchattr chat. Use your name as sender (claude/codex/ben).
     Optionally attach a local image by providing image_path (absolute path).
     Optionally reply to a message by providing reply_to (message ID).
     Optionally specify a channel (default: 'general')."""
+    sender = canonicalize_name(sender)
     if sender:
         _touch_presence(sender)
     if not message.strip() and not image_path:
@@ -133,6 +165,7 @@ def migrate_cursors_delete(channel: str):
 
 
 def _update_cursor(sender: str, msgs: list[dict], channel: str | None):
+    sender = canonicalize_name(sender)
     if sender and msgs:
         ch_key = channel if channel else "__all__"
         with _cursors_lock:
@@ -149,6 +182,7 @@ def chat_read(sender: str = "", since_id: int = 0, limit: int = 20, channel: str
     - Pass since_id to override and read from a specific point.
     - Omit sender to always get the last `limit` messages (no cursor).
     - Pass channel to filter by channel name (default: all channels)."""
+    sender = canonicalize_name(sender)
     if sender:
         _touch_presence(sender)
     ch = channel if channel else None
@@ -178,6 +212,7 @@ def chat_resync(sender: str, limit: int = 50, channel: str = "") -> str:
     to the latest returned message id.
     Pass channel to filter by channel name (default: all channels).
     """
+    sender = canonicalize_name(sender)
     if not sender.strip():
         return "Error: sender is required for chat_resync."
     _touch_presence(sender)
@@ -189,6 +224,7 @@ def chat_resync(sender: str, limit: int = 50, channel: str = "") -> str:
 
 def chat_join(name: str, channel: str = "general") -> str:
     """Announce that you've connected to agentchattr."""
+    name = canonicalize_name(name)
     _touch_presence(name)
     # Only post join to general — don't spam topic channels
     store.add(name, f"{name} is online", msg_type="join", channel="general")
@@ -204,6 +240,9 @@ def chat_who() -> str:
 
 def _touch_presence(name: str):
     """Update presence timestamp — called on any MCP tool use."""
+    name = canonicalize_name(name)
+    if not name:
+        return
     with _presence_lock:
         _presence[name] = time.time()
 
@@ -216,17 +255,22 @@ def _get_online() -> list[str]:
 
 
 def is_online(name: str) -> bool:
+    name = canonicalize_name(name)
     now = time.time()
     with _presence_lock:
         return name in _presence and now - _presence.get(name, 0) < PRESENCE_TIMEOUT
 
 
 def set_active(name: str, active: bool):
+    name = canonicalize_name(name)
+    if not name:
+        return
     with _presence_lock:
         _activity[name] = active
 
 
 def is_active(name: str) -> bool:
+    name = canonicalize_name(name)
     with _presence_lock:
         return _activity.get(name, False)
 
@@ -239,6 +283,7 @@ def chat_decision(action: str, sender: str, decision: str = "", reason: str = ""
       - propose: Propose a new decision for human approval. Requires decision text + sender.
 
     Agents cannot approve, edit, or delete decisions — only humans can do that from the web UI."""
+    sender = canonicalize_name(sender)
     if sender:
         _touch_presence(sender)
     action = action.strip().lower()
@@ -271,6 +316,7 @@ def chat_set_hat(sender: str, svg: str) -> str:
     """Set your avatar hat. Pass an SVG string (viewBox "0 0 32 16", max 5KB).
     The hat will appear above your avatar in chat. To remove, users can drag it to the trash.
     Color context for design — chat bg is dark (#0f0f17), avatar colors: claude=#da7756 (coral), codex=#10a37f (green), gemini=#4285f4 (blue)."""
+    sender = canonicalize_name(sender)
     if not sender.strip():
         return "Error: sender is required."
     _touch_presence(sender)

@@ -42,6 +42,7 @@ def main():
     mcp_bridge.store = store
     mcp_bridge.decisions = decisions
     mcp_bridge.room_settings = room_settings
+    mcp_bridge.configure_identities(config.get("agents", {}))
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)
@@ -108,4 +109,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
