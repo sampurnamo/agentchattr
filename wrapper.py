@@ -191,6 +191,9 @@ def main():
 
     # Heartbeat — ping the server every 60s to keep presence alive
     server_port = config.get("server", {}).get("port", 8300)
+    heartbeat_interval = int(config.get("presence", {}).get("heartbeat_seconds", 60))
+    if heartbeat_interval < 5:
+        heartbeat_interval = 5
     heartbeat_names = [agent]
     cmd_lower = (command_name or "").lower()
     if cmd_lower in ("codex", "claude", "gemini") and cmd_lower not in heartbeat_names:
@@ -206,7 +209,7 @@ def main():
                     urllib.request.urlopen(req, timeout=5)
             except Exception:
                 pass
-            time.sleep(60)
+            time.sleep(heartbeat_interval)
 
     threading.Thread(target=_heartbeat, daemon=True).start()
 

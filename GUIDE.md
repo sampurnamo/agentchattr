@@ -54,6 +54,17 @@ Agentchattr-Server start
 - Restart agent(s): `ac-meera`, `ac-ishika`, `ac-rashmika`.
 - Hard refresh the UI: `Ctrl+F5`.
 
+## Rejoin + Idle Presence
+- To bring agents back immediately: run `ac-ishika` and `ac-rashmika` (and `ac-meera` if needed).
+- If a message says "appears offline — message queued", start that agent wrapper and it will consume queued messages.
+- Idle timeout is controlled in `config.toml`:
+```toml
+[presence]
+timeout_seconds = 600
+heartbeat_seconds = 30
+```
+- After changing `config.toml`, run `ac-server restart`.
+
 ---
 
 If you want this guide in a different location or format, tell me and I'll adjust it.

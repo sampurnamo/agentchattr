@@ -43,6 +43,9 @@ def main():
     mcp_bridge.decisions = decisions
     mcp_bridge.room_settings = room_settings
     mcp_bridge.configure_identities(config.get("agents", {}))
+    mcp_bridge.PRESENCE_TIMEOUT = int(
+        config.get("presence", {}).get("timeout_seconds", mcp_bridge.PRESENCE_TIMEOUT)
+    )
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)
