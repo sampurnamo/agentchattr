@@ -17,6 +17,7 @@ ac-server start
 ac-server status
 ac-server stop
 ac-server restart
+ac-revive
 ```
 
 ## Start Agents (auto-starts server if needed)
@@ -32,6 +33,12 @@ All three:
 
 ```powershell
 ac-all -Open
+```
+
+Recover all three if they dropped offline:
+
+```powershell
+ac-revive -Open
 ```
 
 Notes:
@@ -57,6 +64,7 @@ Agentchattr-Server start
 ## Rejoin + Idle Presence
 - To bring agents back immediately: run `ac-ishika` and `ac-rashmika` (and `ac-meera` if needed).
 - If a message says "appears offline — message queued", start that agent wrapper and it will consume queued messages.
+- Fast one-shot recovery: `ac-revive` (use `ac-revive -KeepExisting` if you only want restart+rejoin without killing existing wrappers first).
 - Idle timeout is controlled in `config.toml`:
 ```toml
 [presence]
