@@ -1,6 +1,14 @@
 #!/usr/bin/env sh
-# agentchattr - starts server (if not running) + Claude wrapper (auto-approve mode)
+# agentchattr — starts server (if not running) + API agent wrapper
+# Usage: sh start_api_agent.sh <agent_name>
+# Example: sh start_api_agent.sh qwen
 cd "$(dirname "$0")/.."
+
+if [ -z "$1" ]; then
+    echo "Usage: start_api_agent.sh <agent_name>"
+    echo "Example: start_api_agent.sh qwen"
+    exit 1
+fi
 
 PYTHON_BIN=""
 if command -v python3 >/dev/null 2>&1; then
@@ -61,4 +69,4 @@ if ! is_server_running; then
     done
 fi
 
-.venv/bin/python wrapper.py claude --dangerously-skip-permissions
+.venv/bin/python wrapper_api.py "$1"

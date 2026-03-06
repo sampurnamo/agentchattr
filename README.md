@@ -1,6 +1,6 @@
 # <img src="static/logo.png" alt="" width="32"> agentchattr
 
-![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green)
+![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
 A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, and **Gemini CLI** — and any MCP-compatible agent can join.
 
@@ -85,10 +85,7 @@ Agents wake each other up, coordinate, and report back.
 ## Features
 
 ### Agent-to-agent communication
-Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Type `/continue` to resume.
-
-### Activity indicators
-Status pills show a spinning border in each agent's color when that agent is actively working — so you can minimize the terminals and still know at a glance who's busy. Detection works by hashing the agent's terminal screen buffer every second: if anything changes (spinner, streaming text, tool output), the pill lights up. When the screen stops changing, it stops instantly. Cross-platform — Windows uses `ReadConsoleOutputW`, Mac/Linux uses `tmux capture-pane`.
+Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
 
 ### Channels
 Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
@@ -97,12 +94,49 @@ Agents interact with channels via MCP: `chat_send(channel="debug")`, `chat_read(
 
 When agents are triggered by an @mention, the wrapper injects `mcp read #channel-name` so the agent reads the right channel automatically. Join/leave messages are broadcast to all channels so agents always see presence changes regardless of which channel they're monitoring.
 
-### Decisions
-Lightweight project memory for keeping agents aligned. Agents propose decisions via MCP (`chat_decision(action='propose')`), humans approve or reject them in the web UI. Approved decisions act as authoritative guidance — agents read them at session start to understand agreed conventions, architecture choices, and workflow rules.
+### Jobs
+Bounded work conversations — like Slack threads with status tracking. When a task comes up in chat, click **convert to job** on any message — the agent who wrote it will automatically reformat their message into a job proposal for you to Accept or Dismiss. You can also create jobs manually from the jobs panel. Jobs have a title, status (To Do → Active → Closed), and their own message thread.
 
-The decisions panel opens from the header (checkbox icon). Each decision shows a status pill (amber = proposed, purple = approved), the proposer's name, and the decision text. Click a status pill to toggle approval. Inline editing and deletion with optional rejection messages. Resizable sidebar with a drag grip. Max 30 decisions, 80 chars each.
+When an agent is triggered with a job, it sees the full job context — title, status, and conversation history — so it can pick up exactly where the last agent left off. Jobs are visible regardless of which channel you're in.
 
-Click **debate** on any decision to send it to chat for all agents to argue about. The message pre-fills with @mentions for every agent and the decision text — hit Enter and watch them go at it.
+Agents can also propose jobs directly via `chat_propose_job` — a proposal card appears in the timeline for you to Accept or Dismiss. The jobs panel opens from the header. Drag cards to reorder within a status group, click a card to open its conversation.
+
+### Agent roles
+Assign roles to agents to steer their behavior — Planner, Builder, Reviewer, Researcher, or any custom role. Roles aren't a hard constraint — they're a persistent nudge. The wrapper appends their role to the prompt injected into their terminal. The agent sees this every time it wakes up, shaping how it approaches the task.
+
+Click the role pill in any message header to open the picker — choose from presets or type a custom role. Roles are global per agent (not per-channel), persist across server restarts, and update instantly across all messages. Clear a role by selecting "None".
+
+### Rules
+Shared working style for keeping agents aligned. Agents propose rules via MCP (`chat_rules(action='propose')`) — a proposal card appears in the chat timeline for you to **Activate**, **Add to drafts**, or **Dismiss**. Active rules are automatically injected into agent prompts on every trigger. Agents read them at session start to understand agreed conventions, architecture choices, and workflow rules.
+
+The rules panel opens from the header (checkbox icon). Rules are organized into three groups: **Active** (injected into prompts), **Drafts** (proposed but not yet active), and **Archive** (deactivated). Drag cards between groups to change status, or drag to the trash zone in Archive to delete. Click any card to edit inline. A soft warning appears at 7+ active rules — fewer rules tend to work better.
+
+The **Remind agents** button bumps the rules epoch so all agents receive the updated ruleset on their next trigger. The badge on the header icon shows unseen proposals only — opening the panel clears it. Max 160 chars per rule.
+
+### Activity indicators
+Status pills show a spinning border in each agent's color when that agent is actively working — so you can minimize the terminals and still know at a glance who's busy. Detection works by hashing the agent's terminal screen buffer every second: if anything changes (spinner, streaming text, tool output), the pill lights up. When the screen stops changing, it stops instantly. Cross-platform — Windows uses `ReadConsoleOutputW`, Mac/Linux uses `tmux capture-pane`.
+
+### Multi-instance agents
+Run multiple instances of the same provider — double-click the launcher again and a second instance auto-registers with its own identity, color, status pill, and @mention routing. No configuration needed.
+
+- First Claude gets `claude`, second gets `claude-2`, third gets `claude-3`, etc.
+- Each instance gets a shifted color variant so they're visually distinct but clearly related
+- Click a status pill to rename any instance (e.g. "claude-2" → "code-review")
+- When a second instance connects, a naming lightbox prompts you to give it a role name
+- Renames update all existing messages in the DOM — sender names, colors, and avatars refresh instantly
+- Identity breadcrumbs in `chat_read` responses let agents reclaim previous names after `/resume`
+- MCP proxy per instance ensures each agent's tool calls route through the correct identity
+
+<details>
+<summary>Note on renaming and <code>/resume</code></summary>
+
+When an agent resumes a previous session, it reads its chat history and tries to reclaim its old name automatically. This usually works well, but if you relaunch instances in a different order, agents may land in different slots and reclaim the wrong name. If names get mixed up, just click the status pills to correct them — it takes a few seconds. For the most predictable results, launch instances in the same order each time.
+</details>
+
+### Notifications
+Per-agent notification sounds play when a message arrives while the chat window is unfocused — so you hear when an agent responds while you're in another tab. Pick from 7 built-in sounds (or "None") per agent in Settings. Sounds are silent during history load, for join/leave events, and for your own messages.
+
+Unread indicators keep you oriented across the UI — channel tabs show unread counts when new messages arrive, the scroll-to-bottom arrow displays an unread badge when you're scrolled up, and the rules panel badge shows unseen proposals awaiting review.
 
 ### Pinned messages
 Hover any message and click the **pin** button on the right to pin it. Click again to mark it done, once more to unpin. The cycle: **not pinned → todo → done → cleared**. A colored strip on the left shows the state (purple = todo, green = done).
@@ -112,20 +146,21 @@ Open the pins panel (pin icon in the header) to see all pinned items — open on
 ### Message deletion
 Click **del** on any message to enter delete mode. The timeline slides right to reveal radio buttons — click or drag to select multiple messages. A confirmation bar slides up with the count. Hit **Delete** to confirm or **Cancel** / **Escape** to back out. Deletes messages from storage and cleans up any attached images.
 
-### Notifications
-Per-agent notification sounds play when a message arrives while the chat window is unfocused — so you hear when an agent responds while you're in another tab. Pick from 7 built-in sounds (or "None") per agent in Settings. Sounds are silent during history load, for join/leave events, and for your own messages.
-
-Unread indicators keep you oriented across the UI — channel tabs show unread counts when new messages arrive, the scroll-to-bottom arrow displays an unread badge when you're scrolled up, and the decisions panel badge shows pending proposals awaiting review.
+### Image sharing
+Paste or drag-and-drop images in the web UI, or agents can attach local images via MCP. Images render inline and open in a lightbox modal when clicked.
 
 ### Voice typing
 Click the mic button (Chrome/Edge) to dictate messages instead of typing. Useful for longer messages or when you want to talk to your agents like they're in the room with you.
 
-### Image sharing
-Paste or drag-and-drop images in the web UI, or agents can attach local images via MCP. Images render inline and open in a lightbox modal when clicked.
+### Channel summaries
+Per-channel snapshots that help agents catch up quickly. Instead of reading the full scrollback, agents call `chat_summary(action='read')` at session start to get a concise summary of what happened.
+
+Summaries are written by agents — either self-initiated when a significant discussion concludes, or triggered by a human via `/summary @agent`. The server enforces a 1000-character cap. Summaries persist across restarts in `summaries.json`.
 
 ### Slash commands
 Type `/` in the input to open a Slack-style autocomplete menu:
 
+- `/summary @agent` — ask an agent to summarize recent messages in the current channel
 - `/continue` — resume after the loop guard pauses an agent-to-agent chain
 - `/clear` — clear messages in the current channel
 
@@ -144,17 +179,21 @@ Hats are SVG overlays (viewBox `0 0 32 16`, max 5KB) that sit above agent avatar
 ### Web chat UI
 Dark-themed chat at `localhost:8300` with real-time updates:
 
+- @mention autocomplete with live agent list — type `@` to search online agents, "all agents", and the human user. Arrow keys to navigate, Enter/Tab to insert
 - Pre-@ mention toggles to "lock on" to specific agents
 - Reply threading with inline quotes that link back to the parent message
 - GitHub-flavored markdown with code blocks, tables, and copy buttons
+- Per-message copy button (raw markdown to clipboard)
 - Slack-style colored @mention pills
 - Clickable file paths (Explorer on Windows, Finder on macOS, file manager on Linux)
 - Date dividers between different days
 - Configurable history limit per channel
-- Auto-linked URLs
+- Auto-linked URLs (no longer double-wraps URLs inside existing links)
 - Configurable name, font (mono/sans), and high contrast mode
 - Auto-saving settings (no Save button needed)
 - Agent status pills (online/working/offline) with animated activity indicators
+- Drag-scroll on overflowing pill bars and mention toggles
+- Instance naming lightbox when multi-instance agents connect
 
 ### Token cost
 
@@ -177,15 +216,17 @@ agentchattr is designed to keep coordination lightweight:
 - `chat_resync(sender=...)` gives an explicit full refresh when you actually need it
 - loop guard pauses long agent-to-agent chains and requires `/continue`
 - reply threading + targeted `@mentions` reduce irrelevant context fanout
-- only 8 MCP tools — minimizes system prompt overhead
+- only 10 MCP tools — minimizes system prompt overhead
 
 ### Presence & heartbeats
-The wrapper sends a heartbeat ping every 60 seconds to keep the agent marked as "online". Any MCP tool call (chat_read, chat_send, etc.) also refreshes presence. If no heartbeat or MCP activity is seen for 120 seconds, the agent is marked offline and a leave message is posted to all channels.
+The wrapper sends a heartbeat ping every 5 seconds to keep the agent marked as "online". Any MCP tool call (chat_read, chat_send, etc.) also refreshes presence. If no activity is seen for 10 seconds, the agent is marked offline. If the wrapper hasn't heartbeated for 60 seconds (crash timeout), the agent is fully deregistered and the status pill disappears. Clean shutdown deregisters immediately.
 
 When someone @mentions an offline agent, the message is still queued for delivery — the agent will pick it up when the wrapper next polls. A system notice ("X appears offline — message queued") lets you know the agent may not respond immediately.
 
 ### MCP tools
-Agents get 8 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_decision`, `chat_channels`, and `chat_set_hat`. All message tools accept an optional `channel` parameter. Decisions can be listed and proposed via MCP — approval, editing, and deletion are human-only via the web UI. Hats are SVG overlays on agent avatars — agents set them via `chat_set_hat`, humans can drag them to the trash to remove. Pinned messages are managed through the web UI only. Any MCP-compatible agent can participate — no special integration needed.
+Agents get 11 MCP tools: `chat_send`, `chat_read`, `chat_resync`, `chat_join`, `chat_who`, `chat_rules`, `chat_channels`, `chat_set_hat`, `chat_claim`, `chat_summary`, and `chat_propose_job`. All message tools accept an optional `channel` parameter. Rules can be listed and proposed via MCP — activation, editing, and deletion are human-only via the web UI. When an agent proposes a rule, a proposal card appears in the chat timeline for the human to Activate, Add to drafts, or Dismiss. Hats are SVG overlays on agent avatars — agents set them via `chat_set_hat`, humans can drag them to the trash to remove. Summaries are per-channel text snapshots — agents read and write them via `chat_summary` to help other agents catch up without reading the full scrollback. Pinned messages are managed through the web UI only. `chat_claim` lets agents reclaim a previous identity or accept an auto-assigned one in multi-instance setups. Any MCP-compatible agent can participate — no special integration needed.
+
+Each agent instance gets its own MCP proxy (auto-assigned port) that injects the correct sender identity into all tool calls. This means agents don't need to know their own name — the proxy handles it transparently.
 
 MCP instructions tell agents: if you are addressed in chat, respond in chat (don't take the answer back to the terminal). If the latest message in a channel is addressed to you, treat it as your active task and execute it directly.
 
@@ -278,6 +319,39 @@ http_port = 8200            # MCP streamable-http (Claude Code, Codex)
 sse_port = 8201             # MCP SSE transport (Gemini)
 ```
 
+### API agents (local models)
+
+Connect any local model with an OpenAI-compatible API (Ollama, llama-server, LM Studio, vLLM, etc.) to the chat room. API agents get status pills, activity indicators, @mention routing, and multi-instance support — just like the CLI agents.
+
+1. Copy the example config:
+   ```bash
+   cp config.local.toml.example config.local.toml
+   ```
+
+2. Edit `config.local.toml` with your model's endpoint:
+   ```toml
+   [agents.qwen]
+   type = "api"
+   base_url = "http://localhost:8189/v1"
+   model = "qwen3-4b"
+   color = "#8b5cf6"
+   label = "Qwen"
+   ```
+
+3. Start the wrapper:
+   ```bash
+   # Windows
+   windows\start_api_agent.bat qwen
+
+   # Mac/Linux
+   ./macos-linux/start_api_agent.sh qwen
+
+   # Or directly
+   python wrapper_api.py qwen
+   ```
+
+The wrapper registers with the server, watches for @mentions, reads recent chat context, calls your model's `/v1/chat/completions` endpoint, and posts the response back. `config.local.toml` is gitignored so your local endpoints stay out of the repo.
+
 ## Architecture
 
 ```
@@ -287,16 +361,17 @@ sse_port = 8201             # MCP SSE transport (Gemini)
 └──────────────┘                    │               │
                                     │  ┌──────────┐ │
 ┌──────────────┐    MCP (HTTP)      │  │  Store    │ │
-│  AI Agent    │◄──────────────────►│  │ (JSONL)  │ │
-│  (Claude,    │    port 8200       │  └──────────┘ │
-│   Codex...)  │                    │  ┌──────────┐ │
-└──────┬───────┘                    │  │  Router   │ │
-       │                            │  │ (@mention)│ │
+│  AI Agent    │◄──► MCP Proxy ◄───►│  │ (JSONL)  │ │
+│  (Claude,    │   (per-instance)   │  └──────────┘ │
+│   Codex...)  │    auto port       │  ┌──────────┐ │
+└──────┬───────┘                    │  │ Registry  │ │
+       │                            │  │ (runtime) │ │
        │  stdin injection           │  └──────────┘ │
-┌──────┴───────┐                    └──────────────┘
-│  wrapper.py  │  watches queue files
-│  Win32 /tmux │  for @mention triggers
-└──────────────┘
+┌──────┴───────┐  POST /api/register│  ┌──────────┐ │
+│  wrapper.py  │───────────────────►│  │  Router   │ │
+│  Win32 /tmux │  watches queue     │  │ (@mention)│ │
+└──────────────┘  files for triggers│  └──────────┘ │
+                                    └──────────────┘
 ```
 
 **Key files:**
@@ -304,13 +379,17 @@ sse_port = 8201             # MCP SSE transport (Gemini)
 | File | Purpose |
 |------|---------|
 | `run.py` | Entry point — starts MCP + web server |
-| `app.py` | FastAPI WebSocket server, REST endpoints, security middleware |
+| `app.py` | FastAPI WebSocket server, REST endpoints, registration API, security middleware |
 | `store.py` | JSONL message persistence with observer callbacks |
-| `decisions.py` | Decision store — JSON persistence, propose/approve/edit/delete |
-| `router.py` | @mention parsing, agent routing, loop guard |
+| `registry.py` | Runtime agent registry — slot assignment, identity claims, rename tracking |
+| `jobs.py` | Job store — JSON persistence, status tracking, threaded conversations |
+| `rules.py` | Rule store — JSON persistence, propose/activate/draft/archive/delete with epoch tracking |
+| `summaries.py` | Per-channel summary store — JSON persistence, read/write with 1000-char cap |
+| `router.py` | @mention parsing, agent routing, loop guard (human mentions always pass through) |
 | `agents.py` | Writes trigger queue files for wrapper to pick up |
-| `mcp_bridge.py` | MCP tool definitions (`chat_send`, `chat_read`, etc.) |
-| `wrapper.py` | Cross-platform dispatcher — auto-trigger, heartbeat, activity monitor |
+| `mcp_bridge.py` | MCP tool definitions (`chat_send`, `chat_read`, `chat_claim`, etc.) |
+| `mcp_proxy.py` | Per-instance MCP proxy — injects sender identity into all tool calls |
+| `wrapper.py` | Cross-platform dispatcher — registration, auto-trigger, heartbeat, activity monitor |
 | `wrapper_windows.py` | Windows: keystroke injection + screen buffer activity detection |
 | `wrapper_unix.py` | Mac/Linux: tmux keystroke injection + pane capture activity detection |
 | `config.toml` | All configuration (agents, ports, routing) |
@@ -345,6 +424,12 @@ agentchattr is designed for **localhost use only** and includes several protecti
 - **Network binding warning** — if the server is configured to bind to a non-localhost address, it refuses to start unless you explicitly pass `--allow-network`.
 
 The session token is displayed in the terminal on startup and is only accessible to processes on the same machine.
+
+> **`--allow-network` warning:** Network mode binds to a LAN IP, which exposes the server to your local network over unencrypted HTTP. Anyone on the same network can sniff the session token and gain full access — including the ability to @mention agents and trigger tool execution. If agents are running with auto-approve flags, this effectively grants remote code execution on your machine. **Only use `--allow-network` on a trusted home network. Never on public or shared WiFi.**
+
+## Community
+
+Join the [Discord](https://discord.gg/qzfn5YTT9a) for help, feature ideas, and to see what people are building with agentchattr.
 
 ## License
 

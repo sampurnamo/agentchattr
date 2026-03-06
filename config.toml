@@ -41,3 +41,45 @@ heartbeat_seconds = 30
 [images]
 upload_dir = "./uploads"
 max_size_mb = 10
+
+# --- MCP injection modes ---
+# By default, claude/codex/gemini use built-in MCP config injection.
+# For other CLI agents, set mcp_inject to tell the wrapper how to inject auth:
+#
+# mcp_inject modes:
+#   "settings_file" — write a JSON settings file at mcp_settings_path (merges, not overwrites)
+#   "env"           — write a settings file, expose path via mcp_env_var
+#   "flag"          — write a config file, pass via CLI flag (mcp_flag, default: --mcp-config)
+#   "proxy_flag"    — start a local proxy, pass URL via CLI flag template
+#
+# Example: Qwen Code CLI
+#   [agents.qwen]
+#   command = "qwen"
+#   cwd = ".."
+#   color = "#8b5cf6"
+#   label = "Qwen"
+#   mcp_inject = "settings_file"
+#   mcp_settings_path = ".qwen/settings.json"
+#   mcp_transport = "sse"
+#
+# Example: CLI with env var for settings
+#   [agents.mycli]
+#   command = "mycli"
+#   mcp_inject = "env"
+#   mcp_env_var = "MYCLI_MCP_SETTINGS"
+#   mcp_transport = "http"
+
+# --- API agents (local models) ---
+# Add local model agents in config.local.toml (gitignored).
+# Example config.local.toml:
+#
+#   [agents.qwen]
+#   type = "api"
+#   base_url = "http://localhost:8189/v1"
+#   model = "qwen3-4b"
+#   color = "#8b5cf6"
+#   label = "Qwen"
+#   # api_key_env = "MY_API_KEY"     # optional: env var name for API key
+#   # system_prompt = "You are ..."   # optional: custom system prompt
+#
+# Then run: python wrapper_api.py qwen

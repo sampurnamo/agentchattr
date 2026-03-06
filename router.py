@@ -7,8 +7,6 @@ class Router:
     def __init__(self, agent_names: list[str], alias_map: dict[str, str] | None = None, default_mention: str = "both",
                  max_hops: int = 4):
         self.agent_names = set(n.lower() for n in agent_names)
-        # alias_map normalizes mention/sender variants to a configured agent key
-        # e.g. {"claude": "ishika", "codex": "meera", "gemini": "rashmika"}
         self.alias_map = {k.lower(): v.lower() for k, v in (alias_map or {}).items()}
         for name in self.agent_names:
             self.alias_map.setdefault(name, name)
@@ -28,7 +26,7 @@ class Router:
         return self._channels[channel]
 
     def _build_pattern(self):
-        names = "|".join(re.escape(n) for n in sorted(self.alias_map.keys()))
+        names = "|".join(re.escape(n) for n in sorted(self.alias_map.keys(), key=len, reverse=True))
         self._mention_re = re.compile(
             rf"@({names}|both|all)\b", re.IGNORECASE
         )
@@ -55,15 +53,10 @@ class Router:
     def get_targets(self, sender: str, text: str, channel: str = "general") -> list[str]:
         """Determine which agents should receive this message."""
         ch = self._get_ch(channel)
-        sender_key = self.normalize_name(sender)
-
-        if ch["paused"]:
-            return []
-
         mentions = self.parse_mentions(text)
 
         if not self._is_agent(sender):
-            # Human message resets hop counter for this channel
+            # Human message resets hop counter and unpauses
             ch["hop_count"] = 0
             ch["paused"] = False
             ch["guard_emitted"] = False
@@ -75,7 +68,10 @@ class Router:
                 return [self.default_mention]
             return mentions
         else:
-            # Agent message: only route if explicit @mention
+            # Agent message: blocked while loop guard is active
+            if ch["paused"]:
+                return []
+            # Only route if explicit @mention
             if not mentions:
                 return []
             ch["hop_count"] += 1
@@ -83,6 +79,7 @@ class Router:
                 ch["paused"] = True
                 return []
             # Don't route back to self
+            sender_key = self.normalize_name(sender)
             return [m for m in mentions if m != sender_key]
 
     def continue_routing(self, channel: str = "general"):
@@ -100,3 +97,10 @@ class Router:
 
     def set_guard_emitted(self, channel: str = "general"):
         self._get_ch(channel)["guard_emitted"] = True
+
+    def update_agents(self, names: list[str]):
+        """Replace the agent name set and rebuild the mention regex."""
+        self.agent_names = set(n.lower() for n in names)
+        for name in self.agent_names:
+            self.alias_map.setdefault(name, name)
+        self._build_pattern()

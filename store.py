@@ -1,6 +1,7 @@
 """JSONL message persistence for the chat room with observer callbacks."""
 
 import json
+import os
 import time
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ class MessageStore:
         self._callbacks: list = []  # called on each new message
         self._todo_callbacks: list = []  # called on todo changes
         self._delete_callbacks: list = []  # called on message deletion
+        self.upload_dir = self._path.parent.parent / "uploads"  # Default fallback
         self._load()
         self._load_todos()
 
@@ -48,7 +50,8 @@ class MessageStore:
 
     def add(self, sender: str, text: str, msg_type: str = "chat",
             attachments: list | None = None, reply_to: int | None = None,
-            channel: str = "general") -> dict:
+            channel: str = "general",
+            metadata: dict | None = None) -> dict:
         with self._lock:
             msg = {
                 "id": self._next_id,
@@ -62,10 +65,14 @@ class MessageStore:
             }
             if reply_to is not None:
                 msg["reply_to"] = reply_to
+            if metadata:
+                msg["metadata"] = metadata
             self._next_id += 1
             self._messages.append(msg)
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
 
         # Fire callbacks outside the lock
         for cb in self._callbacks:
@@ -85,10 +92,10 @@ class MessageStore:
 
     def get_recent(self, count: int = 50, channel: str | None = None) -> list[dict]:
         with self._lock:
+            msgs = self._messages
             if channel:
-                filtered = [m for m in self._messages if m.get("channel", "general") == channel]
-                return list(filtered[-count:])
-            return list(self._messages[-count:])
+                msgs = [m for m in msgs if m.get("channel", "general") == channel]
+            return list(msgs[-count:])
 
     def get_since(self, since_id: int = 0, channel: str | None = None) -> list[dict]:
         with self._lock:
@@ -122,7 +129,7 @@ class MessageStore:
 
         # Clean up uploaded images outside the lock
         for filename in deleted_attachments:
-            filepath = Path("./uploads") / filename
+            filepath = self.upload_dir / filename
             if filepath.exists():
                 try:
                     filepath.unlink()
@@ -142,11 +149,23 @@ class MessageStore:
         """Register a callback(ids) called when messages are deleted."""
         self._delete_callbacks.append(callback)
 
+    def update_message(self, msg_id: int, updates: dict) -> dict | None:
+        """Update fields on a message in-place. Returns the updated message or None."""
+        with self._lock:
+            for m in self._messages:
+                if m["id"] == msg_id:
+                    m.update(updates)
+                    self._rewrite_jsonl()
+                    return dict(m)
+            return None
+
     def _rewrite_jsonl(self):
         """Rewrite the JSONL file from current in-memory messages."""
         with open(self._path, "w", encoding="utf-8") as f:
             for m in self._messages:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def clear(self, channel: str | None = None):
         """Wipe messages and rewrite the log file.
@@ -178,6 +197,18 @@ class MessageStore:
                     modified = True
             if modified:
                 self._rewrite_jsonl()
+
+    def rename_sender(self, old_name: str, new_name: str) -> int:
+        """Rename sender on all messages from old_name to new_name. Returns count updated."""
+        with self._lock:
+            count = 0
+            for m in self._messages:
+                if m.get("sender") == old_name:
+                    m["sender"] = new_name
+                    count += 1
+            if count:
+                self._rewrite_jsonl()
+        return count
 
     def delete_channel(self, name: str):
         """Remove all messages belonging to a deleted channel."""

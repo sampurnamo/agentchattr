@@ -5,7 +5,6 @@ import secrets
 import sys
 import threading
 import time
-import tomllib
 import logging
 from pathlib import Path
 
@@ -21,13 +20,13 @@ def main():
         datefmt="%H:%M:%S",
     )
 
+    from config_loader import load_config
     config_path = ROOT / "config.toml"
     if not config_path.exists():
         print(f"Error: {config_path} not found")
         sys.exit(1)
 
-    with open(config_path, "rb") as f:
-        config = tomllib.load(f)
+    config = load_config(ROOT)
 
     # --- Security: generate a random session token (in-memory only) ---
     session_token = secrets.token_hex(32)
@@ -37,15 +36,28 @@ def main():
     configure(config, session_token=session_token)
 
     # Share stores with the MCP bridge
-    from app import store, decisions, room_settings
+    from app import store, rules, summaries, jobs, room_settings, registry, router as app_router, agents as app_agents
     import mcp_bridge
     mcp_bridge.store = store
-    mcp_bridge.decisions = decisions
+    mcp_bridge.rules = rules
+    mcp_bridge.summaries = summaries
+    mcp_bridge.jobs = jobs
     mcp_bridge.room_settings = room_settings
+    mcp_bridge.registry = registry
+    mcp_bridge.config = config
+    mcp_bridge.router = app_router
+    mcp_bridge.agents = app_agents
     mcp_bridge.configure_identities(config.get("agents", {}))
     mcp_bridge.PRESENCE_TIMEOUT = int(
         config.get("presence", {}).get("timeout_seconds", mcp_bridge.PRESENCE_TIMEOUT)
     )
+
+    # Enable cursor and role persistence across restarts
+    data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
+    mcp_bridge._CURSORS_FILE = data_dir / "mcp_cursors.json"
+    mcp_bridge._load_cursors()
+    mcp_bridge._ROLES_FILE = data_dir / "roles.json"
+    mcp_bridge._load_roles()
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)
@@ -75,7 +87,7 @@ def main():
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
         )
-        return HTMLResponse(injected)
+        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -91,14 +103,28 @@ def main():
 
     # --- Security: warn if binding to a non-localhost address ---
     if host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"\n  !! SECURITY WARNING — binding to {host} !!")
+        print("  This exposes agentchattr to your local network.")
+        print()
+        print("  Risks:")
+        print("  - No TLS: traffic (including session token) is plaintext")
+        print("  - Anyone on your network can sniff the token and gain full access")
+        print("  - With the token, anyone can @mention agents and trigger tool execution")
+        print("  - If agents run with auto-approve, this means remote code execution")
+        print()
+        print("  Only use this on a trusted home network. Never on public/shared WiFi.")
         if "--allow-network" not in sys.argv:
-            print("\n  !! SECURITY WARNING !!")
-            print(f"  Server is configured to bind to {host}")
-            print("  This exposes agentchattr to the network.")
             print("  Pass --allow-network to start anyway, or set host to 127.0.0.1.\n")
             sys.exit(1)
         else:
-            print(f"\n  WARNING: Binding to {host} — network access enabled via --allow-network")
+            print()
+            try:
+                confirm = input("  Type YES to accept these risks and start: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                confirm = ""
+            if confirm != "YES":
+                print("  Aborted.\n")
+                sys.exit(1)
 
     print(f"\n  agentchattr")
     print(f"  Web UI:  http://{host}:{port}")
@@ -112,3 +138,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
