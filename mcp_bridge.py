@@ -196,7 +196,15 @@ def _resolve_tool_identity(
         resolved = registry.resolve_name(provided)
         if resolved != provided and registry.is_registered(resolved):
             provided = resolved
+        if registry.is_registered(provided):
+            _touch_presence(provided)
+            return provided, None
         if registry.is_agent_family(provided):
+            family_inst = registry.get_family_instance(provided)
+            if family_inst and family_inst.get("state") == "active":
+                canonical = family_inst["name"]
+                _touch_presence(canonical)
+                return canonical, None
             return "", f"Error: authenticated agent session required for '{provided}'."
 
     if provided:
